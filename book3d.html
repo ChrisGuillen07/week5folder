@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Attention First - 3D Book</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0e1a1f; }
+  #renderCanvas { width: 100%; height: 100%; display: block; touch-action: none; outline: none; }
+</style>
+<script src="https://cdn.babylonjs.com/babylon.js"></script>
+</head>
+<body>
+<canvas id="renderCanvas"></canvas>
+<script>
+const canvas = document.getElementById("renderCanvas");
+const engine = new BABYLON.Engine(canvas, true);
+
+// ---- Book content ----
+const TITLE = "Attention First: The Human Standard";
+const SUBTITLE = "A Human Framework for Learning, Creation, and Development in the Age of AI";
+
+// ---- Book dimensions ----
+const W = 3, H = 4, D = 0.6, COVER = 0.05;
+
+// Wrap text to a max pixel width and draw it centered
+function drawWrapped(ctx, text, cx, y, maxWidth, lineHeight) {
+  const words = text.split(" ");
+  let line = "";
+  const lines = [];
+  for (const w of words) {
+    const test = line ? line + " " + w : w;
+    if (ctx.measureText(test).width > maxWidth && line) { lines.push(line); line = w; }
+    else line = test;
+  }
+  lines.push(line);
+  lines.forEach((l, i) => ctx.fillText(l, cx, y + i * lineHeight));
+  return y + lines.length * lineHeight;
+}
+
+// Build the front cover texture
+function makeCoverTexture(scene) {
+  const w = 1024, h = Math.round(1024 * H / W);
+  const tex = new BABYLON.DynamicTexture("cover", { width: w, height: h }, scene, true);
+  const ctx = tex.getContext();
+
+  ctx.fillStyle = "#12343b";
+  ctx.fillRect(0, 0, w, h);
+
+  // Concentric rings: a focal point, i.e. "attention"
+  ctx.strokeStyle = "#e9b44c";
+  ctx.lineWidth = 3;
+  for (let r = 40; r <= 200; r += 40) {
+    ctx.globalAlpha = 1 - r / 260;
+    ctx.beginPath(); ctx.arc(w / 2, h * 0.2, r, 0, Math.PI * 2); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = "#e9b44c";
+  ctx.beginPath(); ctx.arc(w / 2, h * 0.2, 14, 0, Math.PI * 2); ctx.fill();
+
+  // Title
+  ctx.textAlign = "center";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillStyle = "#f5efe0";
+  ctx.font = "bold 92px Georgia, 'Times New Roman', serif";
+  const afterTitle = drawWrapped(ctx, TITLE, w / 2, h * 0.47, w - 160, 106);
+
+  // Divider
+  ctx.fillStyle = "#e9b44c";
+  ctx.fillRect(w / 2 - 60, afterTitle + 10, 120, 5);
+
+  // Subtitle
+  ctx.fillStyle = "#cfe0e0";
+  ctx.font = "italic 44px Georgia, 'Times New Roman', serif";
+  drawWrapped(ctx, SUBTITLE, w / 2, afterTitle + 90, w - 200, 58);
+
+  tex.update();
+  return tex;
+}
+
+const createScene = () => {
+  const scene = new BABYLON.Scene(engine);
+  scene.clearColor = new BABYLON.Color4(0.055, 0.1, 0.12, 1);
+
+  // Camera (starts in front of the cover, slowly orbits when idle)
+  const camera = new BABYLON.ArcRotateCamera("cam", -Math.PI / 2 + 0.5, Math.PI / 2.3, 9, BABYLON.Vector3.Zero(), scene);
+  camera.attachControl(canvas, true);
+  camera.lowerRadiusLimit = 5;
+  camera.upperRadiusLimit = 16;
+  camera.wheelPrecision = 40;
+  camera.useAutoRotationBehavior = true;
+  camera.autoRotationBehavior.idleRotationSpeed = 0.25;
+
+  // Lights
+  const hemi = new BABYLON.HemisphericLight("hemi", new BABYLON.Vector3(0, 1, -0.5), scene);
+  hemi.intensity = 0.7;
+  const key = new BABYLON.DirectionalLight("key", new BABYLON.Vector3(-0.5, -1, 1), scene);
+  key.intensity = 0.8;
+  key.position = new BABYLON.Vector3(5, 8, -6);
+
+  // Materials
+  const coverMat = new BABYLON.StandardMaterial("coverMat", scene);
+  coverMat.diffuseColor = BABYLON.Color3.FromHexString("#12343b");
+  coverMat.specularColor = new BABYLON.Color3(0.15, 0.15, 0.15);
+
+  const pageMat = new BABYLON.StandardMaterial("pageMat", scene);
+  pageMat.diffuseColor = BABYLON.Color3.FromHexString("#f3ecd8");
+  pageMat.specularColor = BABYLON.Color3.Black();
+
+  const frontMat = new BABYLON.StandardMaterial("frontMat", scene);
+  frontMat.diffuseTexture = makeCoverTexture(scene);
+  frontMat.specularColor = new BABYLON.Color3(0.2, 0.2, 0.2);
+  frontMat.emissiveColor = new BABYLON.Color3(0.25, 0.25, 0.25); // keeps text readable
+
+  // Book parts, grouped under one root so the whole book moves together
+  const book = new BABYLON.TransformNode("book", scene);
+
+  const pages = BABYLON.MeshBuilder.CreateBox("pages", { width: W - 0.1, height: H - 0.1, depth: D - COVER * 2 }, scene);
+  pages.position.x = 0.03;
+  pages.material = pageMat;
+
+  const frontCover = BABYLON.MeshBuilder.CreateBox("frontCover", { width: W, height: H, depth: COVER }, scene);
+  frontCover.position.z = -(D - COVER) / 2;
+  frontCover.material = coverMat;
+
+  const backCover = BABYLON.MeshBuilder.CreateBox("backCover", { width: W, height: H, depth: COVER }, scene);
+  backCover.position.z = (D - COVER) / 2;
+  backCover.material = coverMat;
+
+  const spine = BABYLON.MeshBuilder.CreateBox("spine", { width: COVER, height: H, depth: D }, scene);
+  spine.position.x = -(W - COVER) / 2;
+  spine.material = coverMat;
+
+  // Front cover artwork: a plane just in front of the cover (a plane faces -Z by default)
+  const frontArt = BABYLON.MeshBuilder.CreatePlane("frontArt", { width: W, height: H }, scene);
+  frontArt.position.z = -D / 2 - 0.001;
+  frontArt.material = frontMat;
+
+  [pages, frontCover, backCover, spine, frontArt].forEach(m => (m.parent = book));
+
+  // Soft ground shadow
+  const ground = BABYLON.MeshBuilder.CreateGround("ground", { width: 14, height: 14 }, scene);
+  ground.position.y = -H / 2 - 0.01;
+  const gMat = new BABYLON.StandardMaterial("gMat", scene);
+  gMat.diffuseColor = BABYLON.Color3.FromHexString("#0e1a1f");
+  gMat.specularColor = BABYLON.Color3.Black();
+  ground.material = gMat;
+
+  const shadowGen = new BABYLON.ShadowGenerator(1024, key);
+  shadowGen.useBlurExponentialShadowMap = true;
+  [pages, frontCover, backCover, spine].forEach(m => shadowGen.addShadowCaster(m));
+  ground.receiveShadows = true;
+
+  // Gentle floating motion
+  let t = 0;
+  scene.onBeforeRenderObservable.add(() => {
+    t += engine.getDeltaTime() / 1000;
+    book.position.y = Math.sin(t * 1.2) * 0.08;
+  });
+
+  return scene;
+};
+
+const scene = createScene();
+engine.runRenderLoop(() => scene.render());
+window.addEventListener("resize", () => engine.resize());
+</script>
+</body>
+</html>
